@@ -1,0 +1,79 @@
+name: build-image
+
+# Manual only, by design: an image must never exist before the audit in AUDIT_RUNBOOK.md.
+on:
+  workflow_dispatch:
+    inputs:
+      push:
+        description: Push the image to GHCR
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+  packages: write
+  id-token: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Read pins from the Dockerfile
+        id: pins
+        run: |
+          set -euo pipefail
+          rev=$(grep -m1 '^ARG BCLONE_REV=' Dockerfile | cut -d= -f2)
+          ver=$(grep -m1 '^ARG BCLONE_VERSION=' Dockerfile | cut -d= -f2)
+          tgz=$(grep -m1 '^ARG BCLONE_TGZ_SHA256=' Dockerfile | cut -d= -f2)
+          base=$(grep -m1 '^ARG RCLONE_BASE=' Dockerfile | cut -d= -f2)
+          image="ghcr.io/$(printf '%s' '${{ github.repository }}' | tr '[:upper:]' '[:lower:]')"
+          echo "image=$image" >> "$GITHUB_OUTPUT"
+          echo "tags=${image}:${ver}-${rev:0:7},${image}:latest" >> "$GITHUB_OUTPUT"
+          echo "| key | value |" | tee -a "$GITHUB_STEP_SUMMARY"
+          echo '|---|---|' >> "$GITHUB_STEP_SUMMARY"
+          echo "| fork revision | \`$rev\` |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| source tarball sha256 | \`$tgz\` |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| rclone base commit | \`$base\` |" >> "$GITHUB_STEP_SUMMARY"
+          echo "https://github.com/BenjiThatFoxGuy/bclone/commit/$rev" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Fail if the pinned revision is no longer the release commit
+        run: |
+          set -euo pipefail
+          latest=$(curl -fsSL "https://api.github.com/repos/BenjiThatFoxGuy/bclone/releases/latest" \
+            | grep -oE '"tag_name": *"[^"]+"' | head -1 | cut -d'"' -f4)
+          want=$(grep -m1 '^ARG BCLONE_VERSION=' Dockerfile | cut -d= -f2)
+          echo "pinned rclone version $want, newest bclone release $latest"
+          if [ "$latest" != "$want" ]; then
+            echo "::error::Unreviewed upstream release $latest exists. Run AUDIT_RUNBOOK.md, then bump the pins."
+            exit 1
+          fi
+
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+
+      - uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v4.8.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          push: ${{ inputs.push }}
+          tags: ${{ steps.pins.outputs.tags }}
+          provenance: true
+          sbom: false
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Record the digest to pin
+        if: inputs.push
+        run: |
+          set -euo pipefail
+          img='${{ steps.pins.outputs.image }}'
+          dig=$(docker buildx imagetools inspect "${img}:latest" | awk '/^Digest:/{print $2; exit}')
+          echo "Pinned pull command: docker pull ${img}@${dig}" | tee -a "$GITHUB_STEP_SUMMARY"
+          echo "Append this digest to the table in AUDIT_RUNBOOK.md." >> "$GITHUB_STEP_SUMMARY"
