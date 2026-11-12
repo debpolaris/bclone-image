@@ -59,7 +59,7 @@ and a write. The digest is the pin; the tag is convenience.
 
 | digest | fork revision | verdict | date |
 |---|---|---|---|
-| `sha256:545c7d91afcf1f27e97e29ca198ea70b34e2e6533cc66af04ac4093520021c2c` | `a90c73aab01c06769064f83a0954e1ca18d170b7` | pulled anonymously, 80 backends incl. all 14 fork additions + `crypt` + `filen`, alpine 3.22.8, FUSE mount read+write verified on the free-tier e2-micro / COS target | 2026-11-12 |
+| `sha256:45b7b7e421ef0d97095e4189e45c325ef1f3328a00a2cf4e1853d53079f50565` | `a90c73aab01c06769064f83a0954e1ca18d170b7` | pulled anonymously on the free-tier e2-micro / COS target, 80 backends incl. every fork addition + `crypt` + `filen`, alpine 3.22.8, FUSE mount served a read and a write | 2026-11-12 |
 
 Provenance: the workflow sets `provenance: true` and its log shows `exporting attestation
 manifest` for both platforms, but the trust anchor here is the build itself - source fetched by
