@@ -59,6 +59,7 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        id: build
         with:
           context: .
           platforms: linux/amd64,linux/arm64
@@ -74,6 +75,7 @@ jobs:
         run: |
           set -euo pipefail
           img='${{ steps.pins.outputs.image }}'
-          dig=$(docker buildx imagetools inspect "${img}:latest" | awk '/^Digest:/{print $2; exit}')
+          dig='${{ steps.build.outputs.digest }}'
+          test -n "$dig"
           echo "Pinned pull command: docker pull ${img}@${dig}" | tee -a "$GITHUB_STEP_SUMMARY"
           echo "Append this digest to the table in AUDIT_RUNBOOK.md." >> "$GITHUB_STEP_SUMMARY"

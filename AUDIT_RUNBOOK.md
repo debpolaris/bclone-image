@@ -48,15 +48,31 @@ when the pinned digest is more than 90 days old, or when a backend misbehaves.
 
 ## Build
 `docker buildx build --platform linux/amd64,linux/arm64`: CGO is off, so no emulator is needed.
-Then on the machine that will run it, `gh attestation verify oci://ghcr.io/...@<digest>`, and
-append the result here:
+The workflow prints `docker pull <image>@<digest>` in its summary; append that row here after
+running the smoke test below.
+
+Smoke test on the machine that will run it: `rclone version` must report `go/linking: static`,
+`help backends` must still list the fork additions, and `mount` must come up and serve a read
+and a write. The digest is the pin; the tag is convenience.
+
+## Digest log
 
 | digest | fork revision | verdict | date |
 |---|---|---|---|
-| (append) | | | |
+| `sha256:545c7d91afcf1f27e97e29ca198ea70b34e2e6533cc66af04ac4093520021c2c` | `a90c73aab01c06769064f83a0954e1ca18d170b7` | pulled anonymously, 80 backends incl. all 14 fork additions + `crypt` + `filen`, alpine 3.22.8, FUSE mount read+write verified on the free-tier e2-micro / COS target | 2026-11-12 |
+
+Provenance: the workflow sets `provenance: true` and its log shows `exporting attestation
+manifest` for both platforms, but the trust anchor here is the build itself - source fetched by
+pinned SHA and verified against `BCLONE_TGZ_SHA256`. `gh attestation verify oci://<image>@<digest>`
+needs gh >= 2.49 (2.46 has no `attestation` command), so treat it as optional extra assurance.
+
 
 ## Deployment notes for Container-Optimized OS targets
 - `/home`, `/var`, `/tmp` are noexec: never bind-mount a binary and run it; run the image.
+- SSH sessions on these VMs inherit a Windows `$HOME` (`/c/Users/<name>`), which does not exist
+  there. Never build a path from `~` or `$HOME`: use the absolute `/home/<user>/.config/rclone`
+  and pass `-e HOME=/config -e XDG_CONFIG_HOME=/config` into the container, or rclone will read
+  an empty config and report no remotes while the file sits on disk.
 - Always pass `--user $(id -u):$(id -g)`, or the container writes root-owned config that the
   SSH user can no longer read.
 - Wrappers call `docker run -i`; any script calling a wrapper must add `</dev/null`, otherwise
@@ -65,5 +81,9 @@ append the result here:
 - 1 GiB RAM: `--transfers 1 --buffer-size 8M`, teldrive `chunk_size=64M`, Filen
   `upload_concurrency=4`. These are system options, so they belong in the wrapper, not in a
   remote section of rclone.conf.
-- `rclone mount` needs `--cap-add SYS_ADMIN --device /dev/fuse`; the base image keeps fuse3 and
-  mailcap (mime.types) for that and for content-type detection.
+- `rclone mount` needs `--device /dev/fuse --cap-add SYS_ADMIN`, plus
+  `--security-opt apparmor=unconfined` on COS: its `docker-default` AppArmor profile makes
+  `fusermount3` fail with `mount failed: Permission denied` even with SYS_ADMIN, and
+  `seccomp=unconfined` or extra capabilities do not help. `--privileged` also works but is
+  wider than needed. Verified 2026-11-12 by mounting and reading and writing through the mount.
+
