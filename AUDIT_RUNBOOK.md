@@ -68,7 +68,8 @@ needs gh >= 2.49 (2.46 has no `attestation` command), so treat it as optional ex
 
 
 ## Deployment notes for Container-Optimized OS targets
-- `/home`, `/var`, `/tmp` are noexec: never bind-mount a binary and run it; run the image.
+- `/home`, `/var`, `/tmp` are noexec: never bind-mount a binary and run it; run the image. The
+  same blocks your own wrappers under `/home`, so call them as `sh /home/<user>/bclone/bc …`.
 - SSH sessions on these VMs inherit a Windows `$HOME` (`/c/Users/<name>`), which does not exist
   there. Never build a path from `~` or `$HOME`: use the absolute `/home/<user>/.config/rclone`
   and pass `-e HOME=/config -e XDG_CONFIG_HOME=/config` into the container, or rclone will read
@@ -77,10 +78,12 @@ needs gh >= 2.49 (2.46 has no `attestation` command), so treat it as optional ex
   SSH user can no longer read.
 - Wrappers call `docker run -i`; any script calling a wrapper must add `</dev/null`, otherwise
   docker swallows the remainder of the script.
-- Mount only the config file whose remote the container is meant to serve.
+- Bind one config *directory* per purpose (`~/.config/rclone` for the shared remotes,
+  `~/.config/rclone-td` for teldrive) so a container never sees credentials it does not need.
 - 1 GiB RAM: `--transfers 1 --buffer-size 8M`, teldrive `chunk_size=64M`, Filen
   `upload_concurrency=4`. These are system options, so they belong in the wrapper, not in a
-  remote section of rclone.conf.
+  remote section of rclone.conf. Put them after the image name but before `"$@"`: rclone honours
+  the last occurrence, so a caller can still raise `--transfers` for one run.
 - `rclone mount` needs `--device /dev/fuse --cap-add SYS_ADMIN`, plus
   `--security-opt apparmor=unconfined` on COS: its `docker-default` AppArmor profile makes
   `fusermount3` fail with `mount failed: Permission denied` even with SYS_ADMIN, and
