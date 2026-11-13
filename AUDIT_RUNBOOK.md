@@ -70,10 +70,16 @@ needs gh >= 2.49 (2.46 has no `attestation` command), so treat it as optional ex
 ## Deployment notes for Container-Optimized OS targets
 - `/home`, `/var`, `/tmp` are noexec: never bind-mount a binary and run it; run the image. The
   same blocks your own wrappers under `/home`, so call them as `sh /home/<user>/bclone/bc …`.
-- SSH sessions on these VMs inherit a Windows `$HOME` (`/c/Users/<name>`), which does not exist
-  there. Never build a path from `~` or `$HOME`: use the absolute `/home/<user>/.config/rclone`
-  and pass `-e HOME=/config -e XDG_CONFIG_HOME=/config` into the container, or rclone will read
-  an empty config and report no remotes while the file sits on disk.
+- The host `$HOME` is correct here (`/home/<user>`, checked with `printenv` in a transferred
+  script). What is *not* trustworthy is measuring it through `ssh A "ssh B 'echo $HOME'"`: the
+  local Git Bash expands `$HOME` before the remote ever sees it, which is how a Windows home
+  path like `/c/Users/<name>` gets reported from a Linux box. Read remote values only through a
+  base64-transferred script.
+- A container started with `--user` has no passwd entry, so **inside** it `HOME` is `/` and
+  rclone would look for `/.config/rclone/rclone.conf`. Pass
+  `-e HOME=/config -e XDG_CONFIG_HOME=/config` and bind absolute host paths; the wrapper env is
+  what makes `/config/rclone/rclone.conf` resolve. Without it rclone reports no remotes while
+  the file sits on disk.
 - Always pass `--user $(id -u):$(id -g)`, or the container writes root-owned config that the
   SSH user can no longer read.
 - Wrappers call `docker run -i`; any script calling a wrapper must add `</dev/null`, otherwise
