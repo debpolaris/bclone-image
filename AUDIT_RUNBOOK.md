@@ -41,6 +41,10 @@ misbehaves.
   no docker, no buildx. The Digest log checks and the smoke test need docker on the target, and
   listing per-platform digests needs `skopeo` or `docker buildx imagetools`, neither of which is
   guaranteed on a Container-Optimized OS host.
+- Release: one per audited build, tagged with the same `v<rclone>-<fork7>` string as the image tag,
+  body holding the four pins, the index digest and both per-platform digests. A human publishes it
+  after the digest log row exists; the workflow never creates releases, which is why an unreviewed
+  build cannot become visible documentation by accident.
 - Consumers pin the image in `IMG=` inside each target's wrapper script
   (`/home/<user>/bclone/bc`, `/home/<user>/bclone/td`). After a new build: update that line,
   re-run the smoke test on that target, and append the digest row here. Skipping it leaves the
