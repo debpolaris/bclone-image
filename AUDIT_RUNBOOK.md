@@ -5,7 +5,9 @@ We run our own Docker image of bclone (https://github.com/BenjiThatFoxGuy/bclone
 rclone carrying backends upstream does not ship: teldrive, telegram, alist, alldebrid, terabox,
 tmpfs, e621, gotohp. We build from source rather than pulling the maintainer's image because
 (1) the binary we run must be the binary we read, and (2) a new fork release must never reach
-our servers before a human has diffed it. Work through this document when the fork releases,
+our servers before a human has diffed it - the measured case for that, including what their image
+does and does not reveal, is under "Why we do not simply pull the maintainer's image". Work
+through this document when the fork releases,
 when the `date` in the newest digest-log row is more than 90 days old, or when a backend
 misbehaves.
 
@@ -103,6 +105,53 @@ misbehaves.
 | `_jobid` custom rc job IDs, altered `[fs]/remote` regex | fork features, no credential path |
 | telegram: session equals full account, Tier 4/untested, 5000-message scan cap, 0644 cache | remote not configured |
 | `bin/zip.3.0.nupkg`, `.github/testdata/gotohptest.png` unreferenced | dead files, never built in |
+
+### Why we do not simply pull the maintainer's image (measured 2026-11-16)
+Recorded so nobody argues the wrong case: **"their container setup is unknowable" is false.** Their
+whole recipe is 24 readable lines - verbatim, blank lines dropped:
+
+```dockerfile
+FROM alpine:latest
+RUN apk --no-cache add ca-certificates fuse3 mailcap tzdata coreutils && \
+    echo "user_allow_other" >> /etc/fuse.conf
+ARG TARGETARCH
+ARG TARGETVARIANT
+ARG VERSION
+COPY build/bclone-${TARGETARCH}${TARGETVARIANT:+_$TARGETVARIANT}/rclone /usr/local/bin/rclone
+RUN chmod +x /usr/local/bin/rclone
+ARG RCLONE_UID=1009
+ARG RCLONE_GID=1009
+RUN addgroup -g "${RCLONE_GID}" rclone && adduser -u "${RCLONE_UID}" -Ds /bin/sh -G rclone rclone
+ENTRYPOINT [ "rclone" ]
+WORKDIR /data
+ENV XDG_CONFIG_HOME=/config
+```
+
+The registry hands over more than that: the amd64 config of `benjithatfoxguy/bclone:v1.76.2` publishes
+every layer's `created_by`, the alpine minirootfs version it started from, and
+`org.opencontainers.image.revision = a90c73ab…` - the very commit this document pins. Diffed against
+rclone's own Dockerfile at `RCLONE_BASE`, the fork kept upstream's final stage untouched - same
+floating `alpine:latest`, same uid/gid 1009 pair, same entrypoint, workdir and `XDG_CONFIG_HOME`, same
+packages plus `coreutils` - and deleted the builder stage: upstream compiles in-image with `make`, the
+fork only ever copies a prebuilt binary.
+
+What we are actually buying, in order of weight:
+
+1. **The audit gate.** They re-push `latest` and keep a mutable `nightly` on every release, so pulling
+   their tag puts unreviewed fork code on a server. Nothing here builds or ships itself.
+2. **Recoverable build inputs.** The `build/` tree their Dockerfile copies is not produced by anything
+   that runs - the only candidate lives at
+   `.github/workflows/disabled/build-and-release.yml`, a subdirectory GitHub does not execute, and the
+   fork README never mentions an image at all. So the Go version, build tags and ldflags behind that
+   binary cannot be recovered from anything public; their revision label is a claim, not evidence.
+   Ours is written down: `CGO_ENABLED=0`, `-trimpath -tags "cmount,noselfupdate"`, source fetched by
+   full SHA and checked against `BCLONE_TGZ_SHA256`.
+3. **Pins that do not move.** Their base (and upstream's) is `alpine:latest`; ours is
+   `alpine:3.22@sha256:…` plus a digest-pinned `golang` builder, and consumers pin our index digest,
+   so nothing changes under a tag we did not approve.
+
+Re-check cheaply on each audit: their `Dockerfile` for a moved base or new `COPY` source, and
+`curl https://hub.docker.com/v2/repositories/benjithatfoxguy/bclone/tags` for new mutable tags.
 
 ## Build
 `docker buildx build --platform linux/amd64,linux/arm64`: `CGO_ENABLED=0` is set in the Dockerfile,
